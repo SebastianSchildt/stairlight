@@ -1,0 +1,11 @@
+[package]
+name = "stairlight"
+version = "0.1.0"
+authors = ["Sebastian Schildt <sebastian@frozenlight.de>"]
+edition = "2018"
+
+[dependencies]
+serde_derive = "^1.0"
+serde = "1.0.84"
+serde_json = "1.0.34"
+reqwest = "0.9.5"

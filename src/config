@@ -1,0 +1,3 @@
+const HUE_LOCATION:     &str = "<your hue ip or hostname>";
+const HUE_USER:         &str = "<your hue user>";
+const HUE_MASTER_LIGHT: &str = "42"; //which light to monitor
