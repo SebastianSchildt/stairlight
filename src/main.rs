@@ -12,8 +12,17 @@ use std::time::Duration;
 
 include!("config");
 
+#[derive(PartialEq)]
+enum State {
+    On,
+    Off,
+    Unknown,
+}
 
-
+struct EspurnaState {
+    state: State,
+    color: String,
+}
 
 #[derive(Deserialize, Debug)]
 struct HueState {
@@ -51,7 +60,17 @@ fn check_master_light() -> Result<bool,Box<dyn Error>> {
     }
 }
 
-fn switch_slave_light(state: bool)  -> Result<bool,Box<dyn Error>> {
+fn switch_slave_light(newstate: bool, currstate: &EspurnaState)  -> Result<(),Box<dyn Error>> {
+
+    let ns = match newstate {
+        true => State::On,
+        false => State::Off,
+    };
+
+    if ns == currstate.state {
+        println!("No change, not pestering slave light");
+        return Ok(())
+    }
     let client = reqwest::Client::new();
 
     let request_url = format!("http://{espurna}/api/relay/0",
@@ -60,7 +79,7 @@ fn switch_slave_light(state: bool)  -> Result<bool,Box<dyn Error>> {
 
     let mut formdata = HashMap::new();
     formdata.insert("apikey", ESPURNA_APIKEY);
-    if state {
+    if newstate {
         println!("Switching Espurna ON");
         formdata.insert("value", "1");
     }
@@ -80,10 +99,12 @@ fn switch_slave_light(state: bool)  -> Result<bool,Box<dyn Error>> {
     let  state : String = v["relay/0"].to_string();
 
     println!("Espurna state is {}",state);
-    Ok(true)
+    Ok(())
 }
 
 fn main() {
+
+    let mut state = EspurnaState { state: State::Unknown, color: String::from("")};
 
     loop {
             println!("Checking....");
@@ -100,16 +121,20 @@ fn main() {
 
     println!("Is light on? {}",res);
 
-    let res2 = switch_slave_light(res);
+    let res2 = switch_slave_light(res, &state);
     let res2 = match res2 {
-        Ok(res2) => res2,
+        Ok(res2) => { 
+            match res {
+                true => { state.state = State::On }
+                false => { state.state = State::Off}
+            }            
+        }
         Err(error) => {
             println!("There was a problem switching slave light: {:?}", error);
-            false
         },
     };
 
-    thread::sleep(Duration::from_secs(5));
+    thread::sleep(Duration::from_secs(2));
     }
 
 }
