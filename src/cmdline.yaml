@@ -1,0 +1,43 @@
+name: Stairlight
+version: "0.1.1"
+author: "Sebastian Schildt <sebastian@frozenlight.de>"
+about: "Hack to sync Hue to Espurna"
+args:
+    - huebridge:
+        short: b
+        long: huebridge
+        value_name: IP
+        default_value: "philips-hue"
+        help: "IP or hostname of hue"
+        takes_value: true
+    - espurna:
+        short: e
+        long: espurna
+        value_name: IP
+        default_value: "espurna"
+        help: "IP or hostname of Espurna"
+        takes_value: true
+    - huetoken:
+        long: huetoken
+        value_name: TOKEN
+        default_value: "deadbeef"
+        help: "Security token for hue"
+        takes_value: true
+    - espurnatoken:
+        long: espurnatoken
+        value_name: TOKEN
+        default_value: "deadbeef"
+        help: "Security token for Espurna"
+        takes_value: true
+    - masterlight:
+        short: m
+        long: masterlight
+        value_name: "LIGHT"
+        default_value: "0"
+        help: "Which Hue light to track"
+        takes_value: true
+    - debug:
+        long: debug
+        takes_value: false
+        help: Enables debug output
+   

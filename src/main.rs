@@ -3,6 +3,16 @@ extern crate serde_derive;
 extern crate serde;
 extern crate reqwest;
 
+#[macro_use]
+extern crate clap;
+use clap::App;
+
+#[macro_use]
+extern crate log;
+extern crate simplelog;
+
+use simplelog::*;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::thread;
@@ -27,12 +37,19 @@ struct LightState {
     v: u64,
 }
 
+struct Config {
+    hue: String,
+    huetoken: String,
+    espurna: String,
+    espurnatoken: String,
+    master: u32,
+}
 
-fn check_master_light(huestate: &mut LightState) -> Result<bool,Box<dyn Error>> {
+fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool,Box<dyn Error>> {
     let request_url = format!("http://{hue}/api/{user}/lights/{master}",
-                              hue = HUE_LOCATION,
-                              user = HUE_USER,
-                              master = HUE_MASTER_LIGHT);
+                              hue = config.hue,
+                              user = config.huetoken,
+                              master = config.master);
     println!("{}", request_url);
 
     let mut response = reqwest::get(&request_url)?;
@@ -77,7 +94,7 @@ fn check_master_light(huestate: &mut LightState) -> Result<bool,Box<dyn Error>> 
     }
 }
 
-fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState)  -> Result<(),Box<dyn Error>> {
+fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState, config: &Config)  -> Result<(),Box<dyn Error>> {
 
     if masterstate != currstate {
         println!("State change detected. Syncing Espurna....");
@@ -87,14 +104,16 @@ fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState)  -> 
         return Ok(())
     }
 
+    let token : &str = &config.espurnatoken;
+
     let client = reqwest::Client::new();
 
     let request_url = format!("http://{espurna}/api/hsv",
-                              espurna = ESPURNA_LOCATION);
+                              espurna = config.espurna);
     
     let mut formdata = HashMap::new();
-    formdata.insert("apikey", ESPURNA_APIKEY);
-    let hsvstr: &str = &format!("{},{},{}",masterstate.h, masterstate.s, masterstate.v);
+    formdata.insert("apikey", token);
+    let hsvstr : &str = &format!("{},{},{}",masterstate.h, masterstate.s, masterstate.v);
     formdata.insert("value", hsvstr);
     let mut response = client.request(reqwest::Method::PUT,&request_url).header("Accept","application/json").form(&formdata).send()?;
 
@@ -105,11 +124,11 @@ fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState)  -> 
     let client = reqwest::Client::new();
 
     let request_url = format!("http://{espurna}/api/relay/0",
-                              espurna = ESPURNA_LOCATION);
+                              espurna = config.espurna);
     println!("{}", request_url);
 
     let mut formdata = HashMap::new();
-    formdata.insert("apikey", ESPURNA_APIKEY);
+    formdata.insert("apikey", token);
     if masterstate.state == State::On {
         println!("Switching Espurna ON");
         formdata.insert("value", "1");
@@ -136,10 +155,45 @@ fn main() {
     let mut esp_state = LightState { state: State::Unknown, h:0, s:0, v:0 };
     let mut hue_state = LightState { state: State::Unknown, h:0, s:0, v:0 };
 
+    let mut myconfig = Config { hue: String::from("Unknown"), espurna: String::from("Unknown"), huetoken: String::from("0"), espurnatoken: String::from("0"), master: 0 };
+
+    //parse cmdline
+    let  yaml = load_yaml!("cmdline.yaml");
+    let matches = App::from_yaml(yaml).get_matches();
+
+    myconfig.hue = String::from(matches.value_of("huebridge").unwrap());
+    myconfig.huetoken = String::from(matches.value_of("huetoken").unwrap());
+    myconfig.espurna = String::from(matches.value_of("espurna").unwrap());
+    myconfig.espurnatoken = String::from(matches.value_of("espurnatoken").unwrap());
+    myconfig.master = value_t!(matches.value_of("masterlight"), u32).unwrap_or_else(|e| e.exit());
+    let debug = matches.is_present("debug");
+
+    let mut level=LevelFilter::Info;
+    
+    if debug {
+        level=LevelFilter::Debug;
+    }
+
+    CombinedLogger::init(
+        vec![
+            TermLogger::new(level, simplelog::Config::default()).unwrap(),
+        ]
+    ).unwrap();
+
+
+    info!("Will connect to Hue at........: {}", myconfig.hue);
+    debug!("Will use Hue token.......: {}", myconfig.huetoken);
+    info!("Will connect to Espurna at........: {}", myconfig.espurna);
+    debug!("Will use Espurna token.......: {}", myconfig.espurnatoken);
+    info!("Will track light........: {}", myconfig.master);
+
+
+
+
     loop {
             println!("Checking....");
 
-    let res=check_master_light(&mut hue_state);
+    let res=check_master_light(&mut hue_state, &myconfig);
 
     let res = match res {
         Ok(res) => res,
@@ -152,7 +206,7 @@ fn main() {
     println!("Is light on? {}",res);
 
 
-    let res2 = switch_slave_light(&hue_state, &mut esp_state);
+    let res2 = switch_slave_light(&hue_state, &mut esp_state, &myconfig);
     match res2 {
         Ok(()) => { 
           
