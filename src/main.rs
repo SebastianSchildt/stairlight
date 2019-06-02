@@ -18,8 +18,6 @@ use std::error::Error;
 use std::thread;
 use std::time::Duration;
 
-include!("config");
-
 #[derive(PartialEq, Copy, Clone)]
 enum State {
     On,
@@ -50,13 +48,12 @@ fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool
         user = config.huetoken,
         master = config.master
     );
-    println!("{}", request_url);
+    debug!("check_master_light: request_url: {}", request_url);
 
     let mut response = reqwest::get(&request_url)?;
     let jsonstr = response.text()?;
-    println!("{}", jsonstr);
+    debug!("check_master_light: respsonse {}", jsonstr);
 
-    println!("Parse");
     let v: serde_json::Value = serde_json::from_str(&jsonstr)?;
     let state: String = v["state"]["on"].to_string();
 
@@ -65,7 +62,7 @@ fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool
     let mut s: u64 = v["state"]["sat"].as_u64().unwrap_or(0);
     let mut v: u64 = v["state"]["bri"].as_u64().unwrap_or(127);
 
-    println!("Master light config H/S/V: {}/{}/{}", h, s, v);
+    debug!("Master light config H/S/V: {}/{}/{}", h, s, v);
 
     /* Hue       h: 0...65535, s: 0...255, v 0...255
      * Espurna   h: 0...360,   s: 0...100, v 0...100
@@ -74,7 +71,7 @@ fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool
     h = (h as f64 / 65535.0 * 360.0) as u64;
     s = (s as f64 / 255.0 * 100.0) as u64;
     v = (v as f64 / 255.0 * 100.0) as u64;
-    println!("Espurna-fied H/S/V: {}/{}/{}", h, s, v);
+    debug!("Espurna-fied H/S/V: {}/{}/{}", h, s, v);
 
     huestate.h = h;
     huestate.s = s;
@@ -97,9 +94,9 @@ fn switch_slave_light(
     config: &Config,
 ) -> Result<(), Box<dyn Error>> {
     if masterstate != currstate {
-        println!("State change detected. Syncing Espurna....");
+        info!("State change detected. Syncing Espurna....");
     } else {
-        println!("No change, not pestering slave light");
+        debug!("No change, not pestering slave light");
         return Ok(());
     }
 
@@ -119,20 +116,20 @@ fn switch_slave_light(
         .send()?;
 
     let jsonstr = response.text()?;
-    println!("Got answer setting hsv: {}", jsonstr);
+    debug!("switch_slave_light: Got answer setting hsv: {}", jsonstr);
 
     let client = reqwest::Client::new();
 
     let request_url = format!("http://{espurna}/api/relay/0", espurna = config.espurna);
-    println!("{}", request_url);
+    debug!("switch_slave_light: Uri for relay {}", request_url);
 
     let mut formdata = HashMap::new();
     formdata.insert("apikey", token);
     if masterstate.state == State::On {
-        println!("Switching Espurna ON");
+        debug!("switch_slave_light: Switching Espurna ON");
         formdata.insert("value", "1");
     } else {
-        println!("Switching Espurna OFF");
+        debug!("switch_slave_light: Switching Espurna OFF");
         formdata.insert("value", "0");
     }
     let mut response = client
@@ -142,7 +139,7 @@ fn switch_slave_light(
         .send()?;
 
     let jsonstr = response.text()?;
-    println!("Got answer setting state: {}", jsonstr);
+    debug!("switch_slave_light: Got answer setting state: {}", jsonstr);
 
     currstate.state = masterstate.state.clone();
     currstate.h = masterstate.h;
@@ -195,32 +192,32 @@ fn main() {
     ])
     .unwrap();
 
-    info!("Will connect to Hue at........: {}", myconfig.hue);
-    debug!("Will use Hue token.......: {}", myconfig.huetoken);
-    info!("Will connect to Espurna at........: {}", myconfig.espurna);
-    debug!("Will use Espurna token.......: {}", myconfig.espurnatoken);
-    info!("Will track light........: {}", myconfig.master);
+    info!("Will connect to Hue at......: {}", myconfig.hue);
+    debug!("Will use Hue token.........: {}", myconfig.huetoken);
+    info!("Will connect to Espurna at..: {}", myconfig.espurna);
+    debug!("Will use Espurna token.....: {}", myconfig.espurnatoken);
+    info!("Will track light............: {}", myconfig.master);
 
     loop {
-        println!("Checking....");
+        debug!("Checking state....");
 
         let res = check_master_light(&mut hue_state, &myconfig);
 
         let res = match res {
             Ok(res) => res,
             Err(error) => {
-                println!("There was a problem checking master light: {:?}", error);
+                error!("There was a problem checking master light: {:?}", error);
                 false
             }
         };
 
-        println!("Is light on? {}", res);
+        info!("Is light on? {}", res);
 
         let res2 = switch_slave_light(&hue_state, &mut esp_state, &myconfig);
         match res2 {
             Ok(()) => {}
             Err(error) => {
-                println!("There was a problem switching slave light: {:?}", error);
+                error!("There was a problem switching slave light: {:?}", error);
             }
         };
 
