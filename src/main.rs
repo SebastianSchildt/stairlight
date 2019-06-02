@@ -1,7 +1,7 @@
 //#[macro_use]
-extern crate serde_derive;
-extern crate serde;
 extern crate reqwest;
+extern crate serde;
+extern crate serde_derive;
 
 #[macro_use]
 extern crate clap;
@@ -17,8 +17,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::thread;
 use std::time::Duration;
-
-
 
 include!("config");
 
@@ -45,86 +43,87 @@ struct Config {
     master: u32,
 }
 
-fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool,Box<dyn Error>> {
-    let request_url = format!("http://{hue}/api/{user}/lights/{master}",
-                              hue = config.hue,
-                              user = config.huetoken,
-                              master = config.master);
+fn check_master_light(huestate: &mut LightState, config: &Config) -> Result<bool, Box<dyn Error>> {
+    let request_url = format!(
+        "http://{hue}/api/{user}/lights/{master}",
+        hue = config.hue,
+        user = config.huetoken,
+        master = config.master
+    );
     println!("{}", request_url);
 
     let mut response = reqwest::get(&request_url)?;
-    let  jsonstr = response.text()?;
+    let jsonstr = response.text()?;
     println!("{}", jsonstr);
 
     println!("Parse");
     let v: serde_json::Value = serde_json::from_str(&jsonstr)?;
-    let  state : String = v["state"]["on"].to_string();
-
-
+    let state: String = v["state"]["on"].to_string();
 
     //If we can not get color config, return white light, 50% bright
-    let mut h : u64 = v["state"]["hue"].as_u64().unwrap_or(0);
-    let mut s : u64 = v["state"]["sat"].as_u64().unwrap_or(0);
-    let mut v : u64 = v["state"]["bri"].as_u64().unwrap_or(127);
+    let mut h: u64 = v["state"]["hue"].as_u64().unwrap_or(0);
+    let mut s: u64 = v["state"]["sat"].as_u64().unwrap_or(0);
+    let mut v: u64 = v["state"]["bri"].as_u64().unwrap_or(127);
 
-    println!("Master light config H/S/V: {}/{}/{}",h,s,v);
+    println!("Master light config H/S/V: {}/{}/{}", h, s, v);
 
     /* Hue       h: 0...65535, s: 0...255, v 0...255
-     * Espurna   h: 0...360,   s: 0...100, v 0...100 
+     * Espurna   h: 0...360,   s: 0...100, v 0...100
      * convert to Espurna, as it is more coarse, and can't track smaller changes anyway
      */
-    h = (h as f64/65535.0*360.0) as u64;
-    s = (s as f64/255.0*100.0)   as u64;
-    v = (v as f64 /255.0*100.0)  as u64;
-    println!("Espurna-fied H/S/V: {}/{}/{}",h,s,v);
+    h = (h as f64 / 65535.0 * 360.0) as u64;
+    s = (s as f64 / 255.0 * 100.0) as u64;
+    v = (v as f64 / 255.0 * 100.0) as u64;
+    println!("Espurna-fied H/S/V: {}/{}/{}", h, s, v);
 
     huestate.h = h;
     huestate.s = s;
     huestate.v = v;
 
-    if  state == "true"  {
+    if state == "true" {
         //println!("Is on");
-        huestate.state=State::On;
+        huestate.state = State::On;
         Ok(true)
-    }
-    else {
+    } else {
         //println!("Is off or broken");
-        huestate.state=State::Off;
+        huestate.state = State::Off;
         Ok(false)
     }
 }
 
-fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState, config: &Config)  -> Result<(),Box<dyn Error>> {
-
+fn switch_slave_light(
+    masterstate: &LightState,
+    currstate: &mut LightState,
+    config: &Config,
+) -> Result<(), Box<dyn Error>> {
     if masterstate != currstate {
         println!("State change detected. Syncing Espurna....");
-    }
-    else {
+    } else {
         println!("No change, not pestering slave light");
-        return Ok(())
+        return Ok(());
     }
 
-    let token : &str = &config.espurnatoken;
+    let token: &str = &config.espurnatoken;
 
     let client = reqwest::Client::new();
 
-    let request_url = format!("http://{espurna}/api/hsv",
-                              espurna = config.espurna);
-    
+    let request_url = format!("http://{espurna}/api/hsv", espurna = config.espurna);
     let mut formdata = HashMap::new();
     formdata.insert("apikey", token);
-    let hsvstr : &str = &format!("{},{},{}",masterstate.h, masterstate.s, masterstate.v);
+    let hsvstr: &str = &format!("{},{},{}", masterstate.h, masterstate.s, masterstate.v);
     formdata.insert("value", hsvstr);
-    let mut response = client.request(reqwest::Method::PUT,&request_url).header("Accept","application/json").form(&formdata).send()?;
+    let mut response = client
+        .request(reqwest::Method::PUT, &request_url)
+        .header("Accept", "application/json")
+        .form(&formdata)
+        .send()?;
 
-    let  jsonstr = response.text()?;
+    let jsonstr = response.text()?;
     println!("Got answer setting hsv: {}", jsonstr);
-
 
     let client = reqwest::Client::new();
 
-    let request_url = format!("http://{espurna}/api/relay/0",
-                              espurna = config.espurna);
+    let request_url = format!("http://{espurna}/api/relay/0", espurna = config.espurna);
     println!("{}", request_url);
 
     let mut formdata = HashMap::new();
@@ -132,33 +131,51 @@ fn switch_slave_light(masterstate: &LightState, currstate: &mut LightState, conf
     if masterstate.state == State::On {
         println!("Switching Espurna ON");
         formdata.insert("value", "1");
-    }
-    else {
+    } else {
         println!("Switching Espurna OFF");
         formdata.insert("value", "0");
     }
-    let mut response = client.request(reqwest::Method::PUT,&request_url).header("Accept","application/json").form(&formdata).send()?;
+    let mut response = client
+        .request(reqwest::Method::PUT, &request_url)
+        .header("Accept", "application/json")
+        .form(&formdata)
+        .send()?;
 
-    let  jsonstr = response.text()?;
+    let jsonstr = response.text()?;
     println!("Got answer setting state: {}", jsonstr);
 
     currstate.state = masterstate.state.clone();
-    currstate.h     = masterstate.h;
-    currstate.s     = masterstate.s;
-    currstate.v     = masterstate.v;
+    currstate.h = masterstate.h;
+    currstate.s = masterstate.s;
+    currstate.v = masterstate.v;
 
     Ok(())
 }
 
 fn main() {
+    let mut esp_state = LightState {
+        state: State::Unknown,
+        h: 0,
+        s: 0,
+        v: 0,
+    };
+    let mut hue_state = LightState {
+        state: State::Unknown,
+        h: 0,
+        s: 0,
+        v: 0,
+    };
 
-    let mut esp_state = LightState { state: State::Unknown, h:0, s:0, v:0 };
-    let mut hue_state = LightState { state: State::Unknown, h:0, s:0, v:0 };
-
-    let mut myconfig = Config { hue: String::from("Unknown"), espurna: String::from("Unknown"), huetoken: String::from("0"), espurnatoken: String::from("0"), master: 0 };
+    let mut myconfig = Config {
+        hue: String::from("Unknown"),
+        espurna: String::from("Unknown"),
+        huetoken: String::from("0"),
+        espurnatoken: String::from("0"),
+        master: 0,
+    };
 
     //parse cmdline
-    let  yaml = load_yaml!("cmdline.yaml");
+    let yaml = load_yaml!("cmdline.yaml");
     let matches = App::from_yaml(yaml).get_matches();
 
     myconfig.hue = String::from(matches.value_of("huebridge").unwrap());
@@ -168,18 +185,15 @@ fn main() {
     myconfig.master = value_t!(matches.value_of("masterlight"), u32).unwrap_or_else(|e| e.exit());
     let debug = matches.is_present("debug");
 
-    let mut level=LevelFilter::Info;
-    
+    let mut level = LevelFilter::Info;
     if debug {
-        level=LevelFilter::Debug;
+        level = LevelFilter::Debug;
     }
 
-    CombinedLogger::init(
-        vec![
-            TermLogger::new(level, simplelog::Config::default()).unwrap(),
-        ]
-    ).unwrap();
-
+    CombinedLogger::init(vec![
+        TermLogger::new(level, simplelog::Config::default()).unwrap()
+    ])
+    .unwrap();
 
     info!("Will connect to Hue at........: {}", myconfig.hue);
     debug!("Will use Hue token.......: {}", myconfig.huetoken);
@@ -187,36 +201,29 @@ fn main() {
     debug!("Will use Espurna token.......: {}", myconfig.espurnatoken);
     info!("Will track light........: {}", myconfig.master);
 
-
-
-
     loop {
-            println!("Checking....");
+        println!("Checking....");
 
-    let res=check_master_light(&mut hue_state, &myconfig);
+        let res = check_master_light(&mut hue_state, &myconfig);
 
-    let res = match res {
-        Ok(res) => res,
-        Err(error) => {
-            println!("There was a problem checking master light: {:?}", error);
-            false
-        },
-    };
+        let res = match res {
+            Ok(res) => res,
+            Err(error) => {
+                println!("There was a problem checking master light: {:?}", error);
+                false
+            }
+        };
 
-    println!("Is light on? {}",res);
+        println!("Is light on? {}", res);
 
+        let res2 = switch_slave_light(&hue_state, &mut esp_state, &myconfig);
+        match res2 {
+            Ok(()) => {}
+            Err(error) => {
+                println!("There was a problem switching slave light: {:?}", error);
+            }
+        };
 
-    let res2 = switch_slave_light(&hue_state, &mut esp_state, &myconfig);
-    match res2 {
-        Ok(()) => { 
-          
-        }
-        Err(error) => {
-            println!("There was a problem switching slave light: {:?}", error);
-        },
-    };
-
-    thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_secs(2));
     }
-
 }
