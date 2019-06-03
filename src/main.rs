@@ -18,6 +18,8 @@ use std::error::Error;
 use std::thread;
 use std::time::Duration;
 
+use std::process;
+
 #[derive(PartialEq, Copy, Clone)]
 enum State {
     On,
@@ -187,10 +189,22 @@ fn main() {
         level = LevelFilter::Debug;
     }
 
-    CombinedLogger::init(vec![
-        TermLogger::new(level, simplelog::Config::default()).unwrap()
-    ])
-    .unwrap();
+    match TermLogger::init(level, simplelog::Config::default()) {
+        Ok(_logger) => (),
+        Err(error) => {
+            println!(
+                "Can not create term logger: {:?}. Trying SimpleLogger",
+                error
+            );
+            match SimpleLogger::init(level, simplelog::Config::default()) {
+                Ok(_logger) => (),
+                Err(error) => {
+                    println!("Can not create simple logger: {:?}. Exiting", error);
+                    process::exit(-1);
+                }
+            }
+        }
+    };
 
     info!("Will connect to Hue at......: {}", myconfig.hue);
     debug!("Will use Hue token.........: {}", myconfig.huetoken);
